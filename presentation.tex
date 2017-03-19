@@ -166,17 +166,15 @@ Data Compression Seminar 2017 \\ % Your institution for the title page
 
 %\end{frame}
 \frame {
-	
 	\frametitle{Overview}
 
 	\begin{itemize}
 		\item Simple open source C library - 837 lines of code
 		\item 2 compression levels - "fast" and normal
+		\item Operates in memory
 		\item Pretty bad performance overall
 	\end{itemize}
 }
-
-
 
 \frame {
 	
@@ -213,30 +211,81 @@ Data Compression Seminar 2017 \\ % Your institution for the title page
 \section{Implementation} 
 
 \begin{frame}
-	\frametitle{Implementation - Compression Format}
+	\frametitle{Compression Format}
 	
 	\begin{itemize}
 		\item Blocks and literals  
 		\item Block consists of \textbf{distance} to reference, \textbf{length} of the reference and \textbf{number of literals} before next block
 	\end{itemize}
 	% typedef wfLZ_Block 
-	\inputminted[firstline=49, lastline=54, bgcolor=lightgray, breaklines]{c}{wflz/wfLZ.c}	
+	\inputminted[firstline=49, lastline=54, breaklines]{c}{wflz/wfLZ.c}	
 	
 \end{frame}
 
 \begin{frame}
-	\frametitle{Implementation - Compression algorithm}
+	\frametitle{Compression ("fast")}
 	
 	\begin{enumerate}
 		\item Read input one byte at a time
 		\item Maintain hash table (of next four bytes at every position)
-		\item Check longest match at \textit{hashtable[ hash(current position) ]}	 
+		\item Check longest match between \textit{current position} and \textit{hashtable[ hash(currentPos) ]}
+		\begin{enumerate}
+			\item If match is longer than than block size (4 bytes), and not too far away (distance stored in 2 bytes), write new block
+			\item Otherwise write new literal
+		\end{enumerate}
 	\end{enumerate}
-	
+\end{frame}
 
+
+\begin{frame}
+	\frametitle{Compression (normal)}
+	
+	\begin{itemize}
+		\item Like "fast" compression but instead of only checking longest match at \textit{hashtable[ hash(currentPos) ]}
+		\begin{itemize}
+			\item Find the best match in range \[ [\textit{currentPos} - \textit{maxMatchDist}, \textit{hashtable[ hash(currentPos) ]}] \]
+		\end{itemize}
+		\item Guarantees that best match is found, but is very slow
+		\item For example, with dataset "dickens", wflz achieved compression speed 19.5Kib/s and ratio 1.71 whereas the fastest compressor, density achieved compression speed 227.75Mib/s (4 orders of magnitude!) and compression ratio 1.75
+	\end{itemize}		 
 
 \end{frame}
 
+\begin{frame}
+	%iterate over window to find best match
+	\inputminted[fontsize=\footnotesize, tabsize=2, firstline=356, lastline=374, breaklines]{c}{wflz/wfLZ.c}	
+\end{frame}
+
+
+\begin{frame}
+	\frametitle{Decompression}
+	
+	\begin{itemize}
+		\item Basic LZ-decompression
+		\item Uses some minor tricks to improve copy speed
+		\begin{itemize}
+			\item Duff's Device (loop unrolling) (I wonder if this is actually any faster than \textit{memcpy} on most platforms though)
+			
+		\end{itemize}		
+
+	\end{itemize}
+		
+\end{frame}
+
+\begin{frame}
+	\frametitle{Duff's Device (Yes, this is valid C)}	
+	
+	\inputminted[fontsize=\footnotesize, tabsize=2, firstline=582, lastline=594, breaklines]{c}{wflz/wfLZ.c}	
+	
+\end{frame}
+
+
+\begin{frame}
+	\frametitle{Other tricks}
+	\begin{itemize}
+		\item Use of the \textit{restrict} C99-keyword for compiler optimizations 
+	\end{itemize}
+\end{frame}
 
 
 \end{document} 
