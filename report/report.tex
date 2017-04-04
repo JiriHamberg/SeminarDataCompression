@@ -32,6 +32,8 @@
 \usepackage{amsfonts,amsmath,amssymb,amsthm,booktabs,color,enumitem,graphicx}
 \usepackage[pdftex,hidelinks]{hyperref}
 
+%\usepackage{cleveref}
+
 % Automatically set the PDF metadata fields
 \makeatletter
 \AtBeginDocument{\hypersetup{pdftitle = {\@title}, pdfauthor = {\@author}}}
@@ -122,9 +124,41 @@ wfLZ is an open source Lempel-Ziv compressor developed by Shane Calimlim. The co
 
 A notable feature of the wfLZ compressor is that unlike most compressors of the Squash Compression Benchmark, it operates in memory. To achieve streaming to a file, one must utilize some form of memory-to-file mapping, such as \textit{mmap} on Unix-like systems or \textit{File Mapping} on Windows systems, but the library itself offers no direct support for this.
 
+The wfLZ library also has some utility functions for supporting a compression mode called \textit{chunked} compression where the input is divided to equal sized chunks which can be compressed concurrently or in parallel. The API does not exactly implement a parallel compressor but rather offers tools utilities for dividing the data in chunks allowing the user to implement a parallel version of the compressor. This design choice is probably due to trying to keep the project as cross platform compatible as possible. As such, I will not be discussing the chunked compressor mode any further in this report. 
+
 \section{Performance Evaluation}
 
-The performance of the wfLZ compressor stands out as very poor in the Squash Compression Benchmark. 
+\begin{figure}
+	\includegraphics[width=1.0\textwidth]{../img/dickens_edited.png}
+	\caption{
+		\textit{dickens}-dataset from the Squash Compression Benchmark. Collected works of Charles Dickens, 9.72 MiB. The wfLZ data points are circled with red. The data points corresponding to the "fast" and "slow" compressor levels are labelled with the words \textit{fast} and \textit{slow} respectively and the data points corresponding to "chunked" compression are labelled with the word \textit{chunked}. 
+	}
+	\label{fig:dickens}
+\end{figure}
+
+
+\begin{figure}
+	\includegraphics[width=1.0\textwidth]{../img/c_source_edited.png}
+	\caption{
+		\textit{fields.c}-dataset from the Squash Compression Benchmark. Small C-source code of 10.89 KiB. The wfLZ data points are circled with red. The data points corresponding to the "fast" and "slow" compressor levels are labelled with the words \textit{fast} and \textit{slow} respectively and the data points corresponding to "chunked" compression are labelled with the word \textit{chuncked}. 
+	}
+	\label{fig:csource}
+\end{figure}
+
+\begin{figure}
+	\includegraphics[width=1.0\textwidth]{../img/wikipedia_decompression.png}
+	\caption{
+		\textit{enwiki8}-dataset from the Squash Compression Benchmark. First $10^8$ bytes, or 95.37 MiB from the Wikipedia dump. The wfLZ data points are circled with red. The data points corresponding to the "fast" and "slow" compressor levels are labelled with the words \textit{fast} and \textit{slow} respectively and the data points corresponding to "chunked" compression are labelled with the word \textit{chunked}.
+	}
+	\label{fig:wikipedia}
+\end{figure}
+
+The performance of the wfLZ compressor does not stand out favourably in the Squash Compression Benchmark. While using the "fast" compression level, the compression speed is reasonably fast, the compression ratio it achieves is amongst the worst of the compressors with comparable compression speed.
+
+When using the "slow" compression level, the wfLZ compressor is amongst the slowest if not the slowest compressor in most cases. This is made worse by the fact that the compression ratio achieved by with the slow compression level is also the lowest amongst the compressors with comparable compression speeds. In fact, this inequality can be highlighted by choosing a dataset where the "slow" compression algorithm fairs especially poorly, such as the \textit{dickens}-dataset (Collected works of Charles Dickens with combined size of 9.72 MiB). Using this dataset the wfLZ achieved compression speed of only 19.5Kib/s and a compression ratio of 1.71, whereas the fastest compressor using this dataset, density, achieved compression speed of 227.75Mib/s and a very much comparable compression ratio of 1.75. That is a whopping 4 orders of magnitude difference in the compression speed. I will discuss the source of this incredibly poor performance in section 3. Figures~\ref{fig:dickens},\ref{fig:csource} illustrate typical compression speed and compression ratio for the wfLZ compressor with different compressor settings.      
+
+The only metric in the Squash Compression Benchmark where the wfLZ really shines is the decompression speed, where the wfLZ consistently ranks within the top 5 decompressors. This is mostly due to the very simple compression format that the wfLZ uses. The fact that the wfLZ compressor operates in memory might also give it an advantage in the benchmark when compared to decompressors that implement actual file I/O. Figure~\ref{fig:wikipedia} illustrates a typical decompression vs. compression-ratio trade off for the wfLZ compressor.
+
 
 \section{Compressor Overview}
 
