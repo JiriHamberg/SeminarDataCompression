@@ -49,6 +49,8 @@
 % add bibliography to the table of contents
 \usepackage[nottoc]{tocbibind}
 
+\usepackage[outputdir=build]{minted}
+
 % --- Theorem environment definitions ---
 
 \newtheorem{thm}{Theorem}
@@ -120,7 +122,7 @@
 
 \section{Introduction}
 
-wfLZ is an open source Lempel-Ziv compressor developed by Shane Calimlim. The compressor is a C library that is, according to the author, designed for use in game engines with focus in cross platform compatibility. The design is very minimalistic - the entire source code of the library consists of 838 lines of code and one C header file of 144 lines. The compressor has two compression levels, referred here as "fast" and "slow" for clarity. When using the "slow" compression level, the compressor trades compression speed for additional compression ratio. Both algorithms are discussed in detail in section 3.2.  
+wfLZ is an open source Lempel-Ziv compressor developed by Shane Calimlim. The compressor is a C library that is, according to the author, designed for use in game engines with focus in cross platform compatibility. The design is very minimalistic - the entire source code of the library consists of 838 lines of code and one C header file of 144 lines. The compressor has two compression levels, referred here as "fast" and "slow" for clarity. When using the "slow" compression level, the compressor trades compression speed for additional compression ratio. Both algorithms are discussed in detail in section 3.  
 
 A notable feature of the wfLZ compressor is that unlike most compressors of the Squash Compression Benchmark, it operates in memory. To achieve streaming to a file, one must utilize some form of memory-to-file mapping, such as \textit{mmap} on Unix-like systems or \textit{File Mapping} on Windows systems, but the library itself offers no direct support for this.
 
@@ -160,13 +162,69 @@ When using the "slow" compression level, the wfLZ compressor is amongst the slow
 The only metric in the Squash Compression Benchmark where the wfLZ really shines is the decompression speed, where the wfLZ consistently ranks within the top 5 decompressors. This is mostly due to the very simple compression format that the wfLZ uses. The fact that the wfLZ compressor operates in memory might also give it an advantage in the benchmark when compared to decompressors that implement actual file I/O. Figure~\ref{fig:wikipedia} illustrates a typical decompression vs. compression-ratio trade off for the wfLZ compressor.
 
 
-\section{Compressor Overview}
 
-\subsection{Compression Format}
+\section{Compression Format}
 
-\subsection{Compression}
+\section{Compression}
 
-\subsection{Decompression}
+The wfLZ compressor is a very simple Lempel-Ziv compressor that uses a small hashtable to find matching subsections from the already traversed part of the input. The hashtable size is by default 256 KB, which fits entirely in an L2-cache of most modern CPUs. The hashtable considers 4 bytes of the input at a time, hashing these bytes to an unsigned 32 bit integer.
+
+The following section of code (slightly simplified by removing logging and endianess-handling) shows the core of the compression algorithm. First, the hashtable is checked for a match. Then, the match is validated by requiring it to be longer than the block size and requiring the distance to the match to fit in a 16-bit unsigned integer. If a valid match was found, a new block will be emitted. Otherwise a literal will be emitted and in case the current block has maximum number of literals already, a new block will be emitted first.    
+
+\begingroup
+\catcode`\-=11
+\begin{minted}[tabsize=2, breaklines]{c}
+while( bytesLeft >= WFLZ_MIN_MATCH_LEN )
+{
+	const uint32_t hash = WFLZ_HASHPTR( src );
+	const uint8_t** dictEntry = &dict[ hash ].inPos;
+	const uint8_t* matchPos = *dictEntry;
+	const uint8_t* windowStart = src - WFLZ_MAX_MATCH_DIST_FAST;
+	ureg_t matchLength = 0;
+	const ureg_t maxMatchLen = WFLZ_MAX_MATCH_LEN > bytesLeft ? bytesLeft : WFLZ_MAX_MATCH_LEN ;
+	*dictEntry = src;
+	if( matchPos != NULL && matchPos >= windowStart )
+	{
+		matchLength = wfLZ_MemCmp( src, matchPos, maxMatchLen );
+	}
+	if( matchLength >= WFLZ_MIN_MATCH_LEN )
+	{
+		const uint32_t matchDist = src - matchPos;
+		block->numLiterals = ( uint8_t )numLiterals;
+		block = ( wfLZ_Block* )dst;
+		bytesLeft -= matchLength;
+		dst += WFLZ_BLOCK_SIZE;
+		src += matchLength;
+		block->dist = ( uint16_t )matchDist;
+		block->length = ( uint8_t )( matchLength - WFLZ_MIN_MATCH_LEN + 1 );
+		numLiterals = 0;
+		header.compressedSize += WFLZ_BLOCK_SIZE;
+	}
+	else
+	{
+		if( numLiterals == WFLZ_MAX_SEQUENTIAL_LITERALS )
+		{
+			block->numLiterals = ( uint8_t )numLiterals;
+			block = ( wfLZ_Block* )dst;
+			dst += WFLZ_BLOCK_SIZE;
+			block->dist = block->length = 0;
+			numLiterals = 0;
+			header.compressedSize += WFLZ_BLOCK_SIZE;
+		}
+		++numLiterals;
+		--bytesLeft;
+		*dst++ = *src++;
+		++header.compressedSize;
+	}
+}				
+\end{minted}
+\endgroup
+
+This functionality is the core of both "fast" and "slow" compressors. The "slow" compressor however adds an extra step to the match finding logic to increase compression ratio at the cost of compression speed. Instead of simply validating the hashtable match, the "slow" compressor iterates over the range $[\textit{currentPos} - \textit{maxMatchDist}, \textit{hashtable[ hash(currentPos) ]}]$ looking for the best match. This method is guaranteed to find the best match within the allowed distance (16-bit unsigned integer). Note that there cannot be any hash collisions in range $[ \textit{hashtable[hash(currentPos)]}, \textit{currentPos} ]$, because then the value of expression $\textit{hashtable[hash(currentPos)]} ]$ would in fact be the location of the last of such collision.
+
+The downside of this approach is the decrease in compression speed. It is easy to see that in the worst case, the algorithm will have to traverse \textit{maxMatchDist} (65535) bytes in almost every position of the input. What is worse, is that the input pattern that leads to terrible performance seems to be quite common in real world: in fact, all that is required is that for most input positions a (sufficiently long) match is found in a nearby location. If we consider literature as an example, we can see that it reflects this requirement quite well: many words are contextual in the sense that they are likely to appear multiple times within a relatively short section of the input and most words will not be unique in the input. This explains why the wfLZ "slow" compressor is four orders of magnitude slower than the fastest compressor with comparable compression ratio in Squash Compression Benchmark with the \textit{Collected Works of Charles Dickens} -dataset.
+
+\section{Decompression}
 
 % Write some science here.
 
